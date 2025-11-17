@@ -4,4 +4,67 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:YouTubeStream.swift">
+   </FileRef>
+   <FileRef
+      location = "group:YouTubeAPIService.swift">
+   </FileRef>
+   <FileRef
+      location = "group:CreateStreamView.swift">
+   </FileRef>
+   <FileRef
+      location = "group:StreamListView.swift">
+   </FileRef>
+   <FileRef
+      location = "group:StreamDetailView.swift">
+   </FileRef>
+   <FileRef
+      location = "group:CameraManager.swift">
+   </FileRef>
+   <FileRef
+      location = "group:CameraPreviewView.swift">
+   </FileRef>
+   <FileRef
+      location = "group:README.md">
+   </FileRef>
+   <FileRef
+      location = "group:Info.plist.example">
+   </FileRef>
+   <FileRef
+      location = "group:Config.swift">
+   </FileRef>
+   <FileRef
+      location = "group:KeychainHelper.swift">
+   </FileRef>
+   <FileRef
+      location = "group:INSTALLATION.md">
+   </FileRef>
+   <FileRef
+      location = "group:RTMPStreamManager.swift">
+   </FileRef>
+   <FileRef
+      location = "group:PROJECT_SUMMARY.md">
+   </FileRef>
+   <FileRef
+      location = "group:QUICKSTART.md">
+   </FileRef>
+   <FileRef
+      location = "group:LiveStageTests.swift">
+   </FileRef>
+   <FileRef
+      location = "group:FILE_STRUCTURE.md">
+   </FileRef>
+   <FileRef
+      location = "group:TODO.md">
+   </FileRef>
+   <FileRef
+      location = "group:CHANGELOG.md">
+   </FileRef>
+   <FileRef
+      location = "group:LICENSE">
+   </FileRef>
+   <FileRef
+      location = "group:START.md">
+   </FileRef>
 </Workspace>

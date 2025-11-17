@@ -9,51 +9,48 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        TabView {
+            StreamListView()
+                .tabItem {
+                    Label("Streams", systemImage: "video.fill")
                 }
-                .onDelete(perform: deleteItems)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+            
+            SettingsView()
+                .tabItem {
+                    Label("Réglages", systemImage: "gear")
                 }
-            }
-        } detail: {
-            Text("Select an item")
         }
     }
+}
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+struct SettingsView: View {
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("À propos") {
+                    LabeledContent("Version", value: "1.0.0")
+                    LabeledContent("Application", value: "LiveStage")
+                }
+                
+                Section("YouTube") {
+                    NavigationLink("Configuration API") {
+                        Text("Configuration des clés API YouTube")
+                    }
+                }
+                
+                Section("Streaming") {
+                    NavigationLink("Paramètres vidéo") {
+                        Text("Résolution, bitrate, etc.")
+                    }
+                }
             }
+            .navigationTitle("Réglages")
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: YouTubeStream.self, inMemory: true)
 }
