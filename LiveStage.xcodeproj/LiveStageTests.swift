@@ -670,6 +670,178 @@ struct RTMPConnectionTests {
     }
 }
 
+// MARK: - Streaming Integration Tests
+
+@Suite("Streaming Integration Tests")
+struct StreamingIntegrationTests {
+
+    @Test("Flux complet: Créer stream → Configurer RTMP → Valider")
+    @MainActor
+    async func completeStreamingWorkflow() async throws {
+        // 1. Créer un stream YouTube
+        let stream = YouTubeStream(
+            id: "test-stream-123",
+            title: "Test Stream",
+            streamDescription: "Integration test stream",
+            scheduledStartTime: Date(),
+            streamKey: "abcd-efgh-ijkl-test",
+            streamURL: "rtmps://a.rtmp.youtube.com/live2",
+            status: .scheduled
+        )
+
+        #expect(!stream.id.isEmpty)
+        #expect(!stream.streamKey!.isEmpty)
+        #expect(!stream.streamURL!.isEmpty)
+
+        // 2. Créer les détails de connexion RTMP
+        let connectionDetails = RTMPConnectionDetails(
+            serverURL: stream.streamURL!,
+            streamKey: stream.streamKey!
+        )
+
+        #expect(connectionDetails.isValid)
+        #expect(connectionDetails.protocol_ == .rtmps)
+
+        // 3. Initialiser le gestionnaire de streaming
+        let manager = RTMPStreamManager()
+        #expect(!manager.isStreaming)
+
+        // 4. Valider que le manager est prêt
+        #expect(manager.isReady)
+    }
+
+    @Test("Workflow reconnexion automatique")
+    @MainActor
+    async func reconnectionWorkflow() async throws {
+        let manager = RTMPStreamManager()
+
+        // 1. État initial
+        #expect(!manager.isStreaming)
+
+        // 2. Tentative de reconnexion sans paramètres (doit être safe)
+        await manager.attemptReconnection(
+            to: "rtmps://a.rtmp.youtube.com/live2",
+            key: ""  // Clé vide pour simuler un paramètre invalide
+        )
+
+        // 3. Vérifier que le manager n'a pas crashé
+        #expect(!manager.isStreaming)
+    }
+
+    @Test("Qualité vidéo et configurati on adaptative")
+    @MainActor
+    func videoQualityConfiguration() {
+        let manager = RTMPStreamManager()
+
+        // Tester chaque résolution
+        let resolutions: [Config.Streaming.VideoResolution] = [
+            .sd480p,
+            .hd720p,
+            .hd1080p,
+            .uhd4k
+        ]
+
+        for resolution in resolutions {
+            // Cette méthode devrait être safe même sans HaishinKit
+            manager.setVideoQuality(resolution: resolution, framerate: 30)
+            #expect(true) // Just verify it doesn't crash
+        }
+    }
+
+    @Test("Activation du bitrate adaptatif")
+    @MainActor
+    func adaptiveBitrateConfiguration() {
+        let manager = RTMPStreamManager()
+
+        // Activer le bitrate adaptatif
+        manager.enableAdaptiveBitrate(true)
+        #expect(true)
+
+        // Désactiver le bitrate adaptatif
+        manager.enableAdaptiveBitrate(false)
+        #expect(true)
+    }
+
+    @Test("Valeurs de configuration recommandées")
+    func recommendedBitratesByResolution() {
+        let configs: [(Config.Streaming.VideoResolution, Int)] = [
+            (.sd480p, 1500),
+            (.hd720p, 3000),
+            (.hd1080p, 6000),
+            (.uhd4k, 15000)
+        ]
+
+        for (resolution, expectedBitrate) in configs {
+            let bitrate = Config.Streaming.recommendedBitrate(for: resolution)
+            #expect(bitrate == expectedBitrate)
+        }
+    }
+
+    @Test("Protocoles RTMP sécurité")
+    func rtmpSecurityComparison() {
+        let rtmpServer = KnownRTMPServer.twitch
+        let rtmpsServer = KnownRTMPServer.youtube
+
+        #expect(rtmpServer.requiresSSL == false) // Twitch doesn't require SSL by default
+        #expect(rtmpsServer.requiresSSL == true) // YouTube requires SSL
+    }
+
+    @Test("Synchronisation des permissions caméra/microphone")
+    @MainActor
+    async func permissionRequestFlow() async {
+        let manager = RTMPStreamManager()
+
+        // Cette méthode fait des appels système sûrs
+        await manager.requestPermissions()
+
+        // Manager devrait rester en bon état
+        #expect(!manager.isStreaming)
+        #expect(manager.isReady)
+    }
+
+    @Test("Contrôle caméra multiples basculements")
+    @MainActor
+    func multipleCameraSwitches() {
+        let manager = RTMPStreamManager()
+
+        let initialPosition = manager.currentCamera
+
+        // Basculer plusieurs fois
+        for _ in 0..<5 {
+            manager.switchCamera()
+        }
+
+        // Après 5 basculements (impair), devrait être opposé à initial
+        let expectedPosition: AVCaptureDevice.Position = initialPosition == .back ? .front : .back
+        #expect(manager.currentCamera == expectedPosition)
+    }
+
+    @Test("État du streaming après arrêt forcé")
+    @MainActor
+    async func forcedStreamStop() async throws {
+        let manager = RTMPStreamManager()
+
+        // Simuler l'arrêt sans démarrage (méthode robuste)
+        manager.stopStreaming()
+
+        #expect(!manager.isStreaming)
+        #expect(manager.connectionStatus == .disconnected)
+    }
+
+    @Test("Consommation mémoire - initialisation")
+    @MainActor
+    func memoryManagement() {
+        // Créer et détruire plusieurs managers
+        for _ in 0..<10 {
+            let manager = RTMPStreamManager()
+            #expect(!manager.isStreaming)
+        }
+
+        // Si nous arrivons ici, pas de crash mémoire
+        #expect(true)
+    }
+}
+
 // MARK: - Stream Model Tests
 
 @Suite("YouTube Stream Model Tests")
