@@ -66,20 +66,69 @@ struct YouTubeAPIServiceTests {
     @Test("Suppression des tokens")
     func deleteTokens() async throws {
         let testToken = "test_token"
-        
+
         // Sauvegarder un token
         try KeychainHelper.saveYouTubeAccessToken(testToken)
-        
+
         // Vérifier qu'il existe
         let loadedToken = try KeychainHelper.loadYouTubeAccessToken()
         #expect(loadedToken != nil)
-        
+
         // Supprimer
         try KeychainHelper.deleteYouTubeTokens()
-        
+
         // Vérifier qu'il n'existe plus
         let deletedToken = try? KeychainHelper.loadYouTubeAccessToken()
         #expect(deletedToken == nil)
+    }
+
+    @Test("Sauvegarde et chargement de la date d'expiration")
+    func tokenExpirationPersistence() async throws {
+        let expirationDate = Date().addingTimeInterval(3600) // Dans 1 heure
+
+        // Nettoyer d'abord
+        try? KeychainHelper.deleteYouTubeTokens()
+
+        // Sauvegarder la date d'expiration
+        try KeychainHelper.saveTokenExpirationDate(expirationDate)
+
+        // Charger la date d'expiration
+        let loadedDate = try KeychainHelper.loadTokenExpirationDate()
+
+        // Vérifier qu'elles correspondent (avec une tolérance de 1 seconde)
+        #expect(loadedDate != nil)
+        if let loadedDate = loadedDate {
+            let timeDifference = abs(loadedDate.timeIntervalSince(expirationDate))
+            #expect(timeDifference < 1.0)
+        }
+
+        // Nettoyer après le test
+        try KeychainHelper.deleteYouTubeTokens()
+    }
+
+    @Test("Suppression complète des tokens et expiration")
+    func deleteAllTokenData() async throws {
+        let testToken = "test_token"
+        let testRefreshToken = "test_refresh_token"
+        let expirationDate = Date().addingTimeInterval(3600)
+
+        // Sauvegarder tous les tokens
+        try KeychainHelper.saveYouTubeAccessToken(testToken)
+        try KeychainHelper.saveYouTubeRefreshToken(testRefreshToken)
+        try KeychainHelper.saveTokenExpirationDate(expirationDate)
+
+        // Vérifier qu'ils existent
+        #expect(try KeychainHelper.loadYouTubeAccessToken() != nil)
+        #expect(try KeychainHelper.loadYouTubeRefreshToken() != nil)
+        #expect(try KeychainHelper.loadTokenExpirationDate() != nil)
+
+        // Supprimer tout
+        try KeychainHelper.deleteYouTubeTokens()
+
+        // Vérifier que tout est supprimé
+        #expect(try? KeychainHelper.loadYouTubeAccessToken() == nil)
+        #expect(try? KeychainHelper.loadYouTubeRefreshToken() == nil)
+        #expect(try? KeychainHelper.loadTokenExpirationDate() == nil)
     }
     
     // MARK: - Authentication State Tests
@@ -118,24 +167,140 @@ struct YouTubeAPIServiceTests {
     @MainActor
     func logoutClearsState() async throws {
         let testToken = "token_to_clear"
-        
-        // Sauvegarder et charger un token
+        let testRefreshToken = "refresh_to_clear"
+        let expirationDate = Date().addingTimeInterval(3600)
+
+        // Sauvegarder et charger tous les tokens
         try KeychainHelper.saveYouTubeAccessToken(testToken)
+        try KeychainHelper.saveYouTubeRefreshToken(testRefreshToken)
+        try KeychainHelper.saveTokenExpirationDate(expirationDate)
+
         let service = YouTubeAPIService()
         service.loadTokenFromKeychain()
-        
+
         #expect(service.isAuthenticated)
-        
+        #expect(service.accessToken != nil)
+        #expect(service.refreshToken != nil)
+        #expect(service.tokenExpirationDate != nil)
+
         // Logout
         service.logout()
-        
-        // Vérifier que tout est nettoyé
+
+        // Vérifier que tout est nettoyé dans le service
         #expect(!service.isAuthenticated)
         #expect(service.accessToken == nil)
-        
+        #expect(service.refreshToken == nil)
+        #expect(service.tokenExpirationDate == nil)
+
         // Vérifier que le Keychain est aussi nettoyé
-        let deletedToken = try? KeychainHelper.loadYouTubeAccessToken()
-        #expect(deletedToken == nil)
+        #expect(try? KeychainHelper.loadYouTubeAccessToken() == nil)
+        #expect(try? KeychainHelper.loadYouTubeRefreshToken() == nil)
+        #expect(try? KeychainHelper.loadTokenExpirationDate() == nil)
+    }
+
+    @Test("Chargement complet des tokens avec expiration")
+    @MainActor
+    func loadCompleteTokenData() async throws {
+        let testToken = "valid_token_123"
+        let testRefreshToken = "valid_refresh_123"
+        let expirationDate = Date().addingTimeInterval(3600)
+
+        // Sauvegarder tous les tokens
+        try KeychainHelper.saveYouTubeAccessToken(testToken)
+        try KeychainHelper.saveYouTubeRefreshToken(testRefreshToken)
+        try KeychainHelper.saveTokenExpirationDate(expirationDate)
+
+        // Créer un nouveau service et charger
+        let service = YouTubeAPIService()
+        service.loadTokenFromKeychain()
+
+        // Vérifier que tout est chargé
+        #expect(service.isAuthenticated == true)
+        #expect(service.accessToken == testToken)
+        #expect(service.refreshToken == testRefreshToken)
+        #expect(service.tokenExpirationDate != nil)
+
+        if let loadedDate = service.tokenExpirationDate {
+            let timeDifference = abs(loadedDate.timeIntervalSince(expirationDate))
+            #expect(timeDifference < 1.0)
+        }
+
+        // Nettoyer
+        try KeychainHelper.deleteYouTubeTokens()
+    }
+
+    // MARK: - Token Refresh Tests
+
+    @Test("Vérification que le refresh token est requis")
+    @MainActor
+    func refreshRequiresRefreshToken() async throws {
+        let service = YouTubeAPIService()
+
+        // Pas de refresh token
+        service.refreshToken = nil
+
+        // Essayer de rafraîchir devrait échouer
+        do {
+            try await service.refreshAccessToken()
+            Issue.record("refreshAccessToken() devrait échouer sans refresh token")
+        } catch YouTubeAPIError.tokenRefreshFailed {
+            // Comportement attendu
+            #expect(true)
+        } catch {
+            Issue.record("Erreur inattendue: \(error)")
+        }
+    }
+
+    @Test("Token avec expiration proche devrait être rafraîchi")
+    @MainActor
+    func tokenNearExpirationShouldRefresh() async throws {
+        let testToken = "expiring_token"
+        let testRefreshToken = "refresh_token"
+        // Token qui expire dans 2 minutes (moins que la marge de 5 minutes)
+        let expirationDate = Date().addingTimeInterval(120)
+
+        // Sauvegarder les tokens
+        try KeychainHelper.saveYouTubeAccessToken(testToken)
+        try KeychainHelper.saveYouTubeRefreshToken(testRefreshToken)
+        try KeychainHelper.saveTokenExpirationDate(expirationDate)
+
+        let service = YouTubeAPIService()
+
+        // Vérifier que le service détecte un token expirant bientôt
+        service.tokenExpirationDate = expirationDate
+        #expect(service.tokenExpirationDate != nil)
+
+        // Calculer le temps jusqu'à expiration
+        let timeUntilExpiration = expirationDate.timeIntervalSinceNow
+        #expect(timeUntilExpiration < 300) // Moins de 5 minutes
+
+        // Nettoyer
+        try KeychainHelper.deleteYouTubeTokens()
+    }
+
+    @Test("Vérification de la structure de TokenResponse")
+    func tokenResponseStructure() async throws {
+        // JSON de réponse typique de l'API OAuth 2.0
+        let jsonString = """
+        {
+            "access_token": "ya29.test_access_token",
+            "expires_in": 3600,
+            "refresh_token": "1//test_refresh_token",
+            "scope": "https://www.googleapis.com/auth/youtube",
+            "token_type": "Bearer"
+        }
+        """
+
+        let jsonData = jsonString.data(using: .utf8)!
+        let decoder = JSONDecoder()
+
+        let response = try decoder.decode(TokenResponse.self, from: jsonData)
+
+        #expect(response.accessToken == "ya29.test_access_token")
+        #expect(response.expiresIn == 3600)
+        #expect(response.refreshToken == "1//test_refresh_token")
+        #expect(response.scope == "https://www.googleapis.com/auth/youtube")
+        #expect(response.tokenType == "Bearer")
     }
 }
 

@@ -130,5 +130,6 @@ enum Config {
         static let service = "com.yourcompany.livestage"
         static let accessTokenKey = "YouTubeAccessToken"
         static let refreshTokenKey = "YouTubeRefreshToken"
+        static let tokenExpirationKey = "TokenExpirationDate"
     }
 }

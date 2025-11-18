@@ -142,9 +142,25 @@ extension KeychainHelper {
         try load(for: Config.Keychain.refreshTokenKey)
     }
     
+    /// Sauvegarde la date d'expiration du token
+    static func saveTokenExpirationDate(_ date: Date) throws {
+        let timestamp = String(date.timeIntervalSince1970)
+        try save(timestamp, for: Config.Keychain.tokenExpirationKey)
+    }
+
+    /// Charge la date d'expiration du token
+    static func loadTokenExpirationDate() throws -> Date? {
+        guard let timestamp = try load(for: Config.Keychain.tokenExpirationKey),
+              let timeInterval = TimeInterval(timestamp) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: timeInterval)
+    }
+
     /// Supprime tous les tokens YouTube
     static func deleteYouTubeTokens() throws {
         try delete(for: Config.Keychain.accessTokenKey)
         try delete(for: Config.Keychain.refreshTokenKey)
+        try delete(for: Config.Keychain.tokenExpirationKey)
     }
 }
