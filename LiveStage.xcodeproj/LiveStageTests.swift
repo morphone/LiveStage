@@ -395,6 +395,152 @@ struct ErrorHandlingTests {
     }
 }
 
+// MARK: - RTMP Stream Manager Tests
+
+@Suite("RTMP Stream Manager Tests")
+struct RTMPStreamManagerTests {
+
+    @Test("État initial du gestionnaire RTMP")
+    @MainActor
+    func initialState() {
+        let manager = RTMPStreamManager()
+
+        #expect(!manager.isStreaming)
+        #expect(manager.isReady)
+        #expect(!manager.isMicrophoneMuted)
+        #expect(manager.currentCamera == .back)
+        #expect(manager.bitrate == 0)
+        #expect(manager.fps == 0)
+    }
+
+    @Test("Statut de connexion initial")
+    @MainActor
+    func connectionStatusInitial() {
+        let manager = RTMPStreamManager()
+
+        switch manager.connectionStatus {
+        case .disconnected:
+            #expect(true)
+        default:
+            #expect(false, "État initial doit être disconnected")
+        }
+    }
+
+    @Test("Basculement du microphone")
+    @MainActor
+    func toggleMicrophone() {
+        let manager = RTMPStreamManager()
+
+        #expect(!manager.isMicrophoneMuted)
+
+        manager.toggleMicrophone()
+        #expect(manager.isMicrophoneMuted)
+
+        manager.toggleMicrophone()
+        #expect(!manager.isMicrophoneMuted)
+    }
+
+    @Test("Changement de caméra")
+    @MainActor
+    func switchCamera() {
+        let manager = RTMPStreamManager()
+
+        #expect(manager.currentCamera == .back)
+
+        manager.switchCamera()
+        #expect(manager.currentCamera == .front)
+
+        manager.switchCamera()
+        #expect(manager.currentCamera == .back)
+    }
+
+    @Test("Démarrage du streaming avec URL vide échoue")
+    @MainActor
+    async func startStreamingWithEmptyURLFails() async {
+        let manager = RTMPStreamManager()
+
+        do {
+            try await manager.startStreaming(to: "", key: "test-key")
+            #expect(false, "Devrait échouer avec URL vide")
+        } catch AppError.streamingError {
+            #expect(true)
+        } catch {
+            #expect(false, "Erreur inattendue: \(error)")
+        }
+    }
+
+    @Test("Démarrage du streaming avec clé vide échoue")
+    @MainActor
+    async func startStreamingWithEmptyKeyFails() async {
+        let manager = RTMPStreamManager()
+
+        do {
+            try await manager.startStreaming(to: "rtmp://test.com", key: "")
+            #expect(false, "Devrait échouer avec clé vide")
+        } catch AppError.streamingError {
+            #expect(true)
+        } catch {
+            #expect(false, "Erreur inattendue: \(error)")
+        }
+    }
+
+    @Test("Santé du stream par défaut")
+    @MainActor
+    func defaultStreamHealth() {
+        let manager = RTMPStreamManager()
+
+        switch manager.streamHealth {
+        case .excellent:
+            #expect(true)
+        default:
+            #expect(false, "La santé par défaut doit être excellent")
+        }
+    }
+
+    @Test("Descriptions de statut de connexion")
+    @MainActor
+    func connectionStatusDescriptions() {
+        let statuses: [(RTMPStreamManager.ConnectionStatus, String)] = [
+            (.disconnected, "Déconnecté"),
+            (.connecting, "Connexion..."),
+            (.connected, "Connecté"),
+            (.reconnecting(attempt: 2), "Reconnexion (2/5)..."),
+            (.error("Test"), "Erreur: Test")
+        ]
+
+        for (status, expectedDescription) in statuses {
+            #expect(status.description == expectedDescription)
+        }
+    }
+
+    @Test("Indicateurs de santé du stream")
+    @MainActor
+    func streamHealthIndicators() {
+        let healths: [(RTMPStreamManager.StreamHealth, String)] = [
+            (.excellent, "🟢"),
+            (.good, "🟡"),
+            (.fair, "🟠"),
+            (.poor, "🔴")
+        ]
+
+        for (health, expectedIndicator) in healths {
+            #expect(health.indicator == expectedIndicator)
+        }
+    }
+
+    @Test("Arrêt d'un streaming qui n'est pas actif")
+    @MainActor
+    func stopStreamingWhenNotStreaming() {
+        let manager = RTMPStreamManager()
+
+        #expect(!manager.isStreaming)
+
+        manager.stopStreaming() // Should not crash
+
+        #expect(!manager.isStreaming)
+    }
+}
+
 // MARK: - Stream Model Tests
 
 @Suite("YouTube Stream Model Tests")
