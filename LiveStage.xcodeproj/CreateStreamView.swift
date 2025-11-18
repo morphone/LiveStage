@@ -7,6 +7,9 @@
 
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#endif
 
 struct CreateStreamView: View {
     @Environment(\.modelContext) private var modelContext
@@ -120,9 +123,16 @@ struct CreateStreamView: View {
                 try? await youtubeService.authenticate()
             }
         case .openSettings:
+            #if os(iOS)
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
             }
+            #else
+            // macOS: Ouvrir les Préférences Système
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                NSWorkspace.shared.open(url)
+            }
+            #endif
         case .cancel, .dismiss:
             // Juste fermer l'alert
             break

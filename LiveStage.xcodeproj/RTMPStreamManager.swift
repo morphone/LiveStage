@@ -18,7 +18,11 @@ class RTMPStreamManager: NSObject, ObservableObject {
     @Published var isStreaming = false
     @Published var isReady = false
     @Published var isMicrophoneMuted = false
+    #if os(iOS)
     @Published var currentCamera: AVCaptureDevice.Position = .back
+    #else
+    @Published var currentCameraDevice: AVCaptureDevice?
+    #endif
     @Published var connectionStatus: ConnectionStatus = .disconnected
     @Published var bitrate: Int = 0
     @Published var fps: Int = 0
@@ -74,7 +78,9 @@ class RTMPStreamManager: NSObject, ObservableObject {
     private var rtmpStream: Any?      // RTMPStream in reality
 
     // Audio/Video session management
+    #if os(iOS)
     private var audioSession: AVAudioSession?
+    #endif
     private var captureSession: AVCaptureSession?
 
     // Monitoring
@@ -100,6 +106,7 @@ class RTMPStreamManager: NSObject, ObservableObject {
 
     /// Configure la session audio
     private func setupAudioSession() {
+        #if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
@@ -110,6 +117,10 @@ class RTMPStreamManager: NSObject, ObservableObject {
             AppLogger.logError(error, context: "Configuration AVAudioSession")
             connectionStatus = .error("Configuration audio échouée")
         }
+        #else
+        // macOS n'utilise pas AVAudioSession, l'audio est géré par AVCaptureSession
+        AppLogger.stream.debug("📱 Audio géré par AVCaptureSession sur macOS")
+        #endif
     }
 
     /// Configure la session de capture vidéo
@@ -182,6 +193,7 @@ class RTMPStreamManager: NSObject, ObservableObject {
 
     /// Attache la caméra au stream
     private func attachCamera() {
+        #if os(iOS)
         AppLogger.stream.debug("📷 Attachement caméra: \(currentCamera == .back ? "arrière" : "avant")")
 
         // HaishinKit integration would go here
@@ -198,6 +210,29 @@ class RTMPStreamManager: NSObject, ObservableObject {
             }
         }
         */
+        #else
+        // macOS: Utiliser la première caméra disponible (généralement FaceTime HD)
+        if currentCameraDevice == nil {
+            currentCameraDevice = AVCaptureDevice.default(for: .video)
+        }
+
+        if let camera = currentCameraDevice {
+            AppLogger.stream.debug("📷 Attachement caméra macOS: \(camera.localizedName)")
+
+            // HaishinKit integration would go here
+            /*
+            guard let stream = rtmpStream as? RTMPStream else { return }
+
+            stream.attachCamera(camera) { error in
+                if let error = error {
+                    AppLogger.logError(error, context: "Attachement caméra")
+                }
+            }
+            */
+        } else {
+            AppLogger.logError(AppError.cameraNotAvailable, context: "Aucune caméra trouvée sur macOS")
+        }
+        #endif
     }
 
     /// Attache le microphone au stream
@@ -222,9 +257,30 @@ class RTMPStreamManager: NSObject, ObservableObject {
 
     /// Change entre caméra avant et arrière
     func switchCamera() {
+        #if os(iOS)
         currentCamera = currentCamera == .back ? .front : .back
         AppLogger.stream.info("📷 Changement caméra: \(currentCamera == .back ? "arrière" : "avant")")
         attachCamera()
+        #else
+        // macOS: Pas de changement de caméra (généralement une seule caméra)
+        // Chercher d'autres caméras disponibles si présentes
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .externalUnknown],
+            mediaType: .video,
+            position: .unspecified
+        )
+
+        let cameras = discoverySession.devices
+        if cameras.count > 1, let current = currentCameraDevice,
+           let currentIndex = cameras.firstIndex(of: current) {
+            let nextIndex = (currentIndex + 1) % cameras.count
+            currentCameraDevice = cameras[nextIndex]
+            AppLogger.stream.info("📷 Changement vers: \(cameras[nextIndex].localizedName)")
+            attachCamera()
+        } else {
+            AppLogger.stream.debug("📷 Une seule caméra disponible sur ce Mac")
+        }
+        #endif
     }
 
     /// Active/désactive le microphone

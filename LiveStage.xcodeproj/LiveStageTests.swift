@@ -353,11 +353,17 @@ struct ErrorHandlingTests {
             action.title == "Se connecter"
         })
 
-        // Erreur de permission devrait suggérer Ouvrir Réglages
+        // Erreur de permission devrait suggérer Ouvrir Réglages/Préférences
         let permissionError = AppError.cameraPermissionDenied
+        #if os(macOS)
+        #expect(permissionError.suggestedActions.contains { action in
+            action.title == "Ouvrir Préférences"
+        })
+        #else
         #expect(permissionError.suggestedActions.contains { action in
             action.title == "Ouvrir Réglages"
         })
+        #endif
 
         // Erreur réseau devrait suggérer Réessayer
         let networkError = AppError.networkError(NSError(domain: "", code: 0))
@@ -368,8 +374,13 @@ struct ErrorHandlingTests {
 
     @Test("ErrorAction titres en français")
     func errorActionTitles() {
+        #if os(macOS)
+        let actions: [ErrorAction] = [.retry, .cancel, .login, .openSettings, .dismiss]
+        let expectedTitles = ["Réessayer", "Annuler", "Se connecter", "Ouvrir Préférences", "OK"]
+        #else
         let actions: [ErrorAction] = [.retry, .cancel, .login, .openSettings, .dismiss]
         let expectedTitles = ["Réessayer", "Annuler", "Se connecter", "Ouvrir Réglages", "OK"]
+        #endif
 
         for (action, expectedTitle) in zip(actions, expectedTitles) {
             #expect(action.title == expectedTitle)
@@ -408,7 +419,12 @@ struct RTMPStreamManagerTests {
         #expect(!manager.isStreaming)
         #expect(manager.isReady)
         #expect(!manager.isMicrophoneMuted)
+        #if os(iOS)
         #expect(manager.currentCamera == .back)
+        #else
+        // macOS: La caméra sera détectée au premier attachement
+        #expect(manager.currentCameraDevice == nil)
+        #endif
         #expect(manager.bitrate == 0)
         #expect(manager.fps == 0)
     }
@@ -445,6 +461,7 @@ struct RTMPStreamManagerTests {
     func switchCamera() {
         let manager = RTMPStreamManager()
 
+        #if os(iOS)
         #expect(manager.currentCamera == .back)
 
         manager.switchCamera()
@@ -452,6 +469,11 @@ struct RTMPStreamManagerTests {
 
         manager.switchCamera()
         #expect(manager.currentCamera == .back)
+        #else
+        // macOS: Le changement de caméra est safe même sans caméras disponibles
+        manager.switchCamera()
+        #expect(true) // Ne devrait pas crasher
+        #endif
     }
 
     @Test("Démarrage du streaming avec URL vide échoue")
@@ -804,6 +826,7 @@ struct StreamingIntegrationTests {
     func multipleCameraSwitches() {
         let manager = RTMPStreamManager()
 
+        #if os(iOS)
         let initialPosition = manager.currentCamera
 
         // Basculer plusieurs fois
@@ -814,6 +837,13 @@ struct StreamingIntegrationTests {
         // Après 5 basculements (impair), devrait être opposé à initial
         let expectedPosition: AVCaptureDevice.Position = initialPosition == .back ? .front : .back
         #expect(manager.currentCamera == expectedPosition)
+        #else
+        // macOS: Basculer plusieurs fois ne devrait pas crasher
+        for _ in 0..<5 {
+            manager.switchCamera()
+        }
+        #expect(true)
+        #endif
     }
 
     @Test("État du streaming après arrêt forcé")

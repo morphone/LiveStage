@@ -105,9 +105,17 @@ enum AppError: LocalizedError {
         case .rtmpConnectionFailed:
             return "Impossible de se connecter au serveur de streaming."
         case .cameraPermissionDenied:
+            #if os(macOS)
+            return "Accès à la caméra refusé. Veuillez autoriser l'accès dans les Préférences Système."
+            #else
             return "Accès à la caméra refusé. Veuillez autoriser l'accès dans les Réglages."
+            #endif
         case .microphonePermissionDenied:
+            #if os(macOS)
+            return "Accès au microphone refusé. Veuillez autoriser l'accès dans les Préférences Système."
+            #else
             return "Accès au microphone refusé. Veuillez autoriser l'accès dans les Réglages."
+            #endif
         case .cameraNotAvailable:
             return "Caméra non disponible."
         case .encodingError(let message):
@@ -167,7 +175,11 @@ enum AppError: LocalizedError {
         case .streamingError, .rtmpConnectionFailed:
             return "Vérifiez votre connexion et réessayez."
         case .cameraPermissionDenied, .microphonePermissionDenied:
+            #if os(macOS)
+            return "Allez dans Préférences Système > Sécurité et confidentialité pour autoriser l'accès."
+            #else
             return "Allez dans Réglages > LiveStage pour autoriser l'accès."
+            #endif
         case .cameraNotAvailable:
             return "Vérifiez qu'aucune autre application n'utilise la caméra."
         case .encodingError:
@@ -233,7 +245,11 @@ enum ErrorAction {
         case .login:
             return "Se connecter"
         case .openSettings:
+            #if os(macOS)
+            return "Ouvrir Préférences"
+            #else
             return "Ouvrir Réglages"
+            #endif
         case .dismiss:
             return "OK"
         }
