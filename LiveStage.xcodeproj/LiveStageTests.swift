@@ -541,6 +541,135 @@ struct RTMPStreamManagerTests {
     }
 }
 
+// MARK: - RTMP Connection Tests
+
+@Suite("RTMP Connection Tests")
+struct RTMPConnectionTests {
+
+    @Test("Création de détails de connexion valides")
+    func validConnectionDetails() {
+        let details = RTMPConnectionDetails(
+            serverURL: "rtmps://a.rtmp.youtube.com/live2",
+            streamKey: "abcd-efgh-ijkl"
+        )
+
+        #expect(details.isValid)
+        #expect(details.protocol_ == .rtmps)
+        #expect(!details.protocol_.isSecure == false) // RTMPS is secure
+    }
+
+    @Test("URL RTMP invalide détectée")
+    func invalidRTMPURL() {
+        let details = RTMPConnectionDetails(
+            serverURL: "https://example.com/live",
+            streamKey: "key123"
+        )
+
+        #expect(!details.isValid)
+    }
+
+    @Test("Construction d'URL complète RTMP")
+    func fullURLConstruction() {
+        let details = RTMPConnectionDetails(
+            serverURL: "rtmps://a.rtmp.youtube.com/live2",
+            streamKey: "xyz123"
+        )
+
+        let fullURL = details.fullURL
+        #expect(fullURL.contains("rtmps://"))
+        #expect(fullURL.contains("xyz123"))
+    }
+
+    @Test("Serveurs RTMP connus")
+    func knownServers() {
+        let servers: [(KnownRTMPServer, String)] = [
+            (.youtube, "YouTube Live"),
+            (.twitch, "Twitch")
+        ]
+
+        for (server, expectedName) in servers {
+            #expect(server.name == expectedName)
+            #expect(!server.serverURL.isEmpty)
+        }
+    }
+
+    @Test("YouTube Live stream key validation")
+    func youtubeStreamKeyValidation() {
+        #expect(YouTubeLiveRTMP.isValidStreamKey("abcd-efgh-ijkl-mnop"))
+        #expect(!YouTubeLiveRTMP.isValidStreamKey(""))
+        #expect(!YouTubeLiveRTMP.isValidStreamKey("short"))
+    }
+
+    @Test("RTMP Connection Info parsing")
+    func rtmpConnectionInfoParsing() {
+        let info = RTMPConnectionInfo(
+            fromURL: "rtmps://a.rtmp.youtube.com/live2",
+            streamKey: "streamkey123"
+        )
+
+        #expect(info != nil)
+        if let info = info {
+            #expect(info.isSecure)
+            #expect(info.port == 443)
+            #expect(info.serverAddress == "a.rtmp.youtube.com")
+        }
+    }
+
+    @Test("Métriques de connexion RTMP")
+    func rtmpConnectionMetrics() {
+        var metrics = RTMPConnectionMetrics()
+
+        metrics.framesVideoSent = 100
+        metrics.framesVideoDropped = 10
+
+        let successRate = metrics.packetSuccessRate
+        #expect(successRate > 0)
+        #expect(successRate <= 100)
+
+        // Calculate expected: 100 / (100 + 10) * 100 = 90.9%
+        #expect(successRate > 90 && successRate < 92)
+    }
+
+    @Test("Indicateur de santé basé sur le taux de succès")
+    func healthIndicatorFromSuccessRate() {
+        var metrics = RTMPConnectionMetrics()
+
+        // Excellent (>80%)
+        metrics.framesVideoSent = 100
+        metrics.framesVideoDropped = 10
+        #expect(metrics.healthIndicator == .excellent)
+
+        // Good (60-80%)
+        metrics.framesVideoSent = 100
+        metrics.framesVideoDropped = 25
+        #expect(metrics.healthIndicator == .good)
+
+        // Fair (40-60%)
+        metrics.framesVideoSent = 100
+        metrics.framesVideoDropped = 50
+        #expect(metrics.healthIndicator == .fair)
+
+        // Poor (<40%)
+        metrics.framesVideoSent = 100
+        metrics.framesVideoDropped = 70
+        #expect(metrics.healthIndicator == .poor)
+    }
+
+    @Test("Descriptions d'état de connexion RTMP")
+    func connectionStateDescriptions() {
+        let states: [(RTMPConnectionState, String)] = [
+            (.idle, "Non connecté"),
+            (.connecting, "Connexion..."),
+            (.connected, "Connecté"),
+            (.reconnecting(attempt: 3), "Reconnexion (3/5)...")
+        ]
+
+        for (state, expectedDesc) in states {
+            #expect(state.description == expectedDesc)
+        }
+    }
+}
+
 // MARK: - Stream Model Tests
 
 @Suite("YouTube Stream Model Tests")
