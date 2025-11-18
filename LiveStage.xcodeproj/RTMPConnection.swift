@@ -3,277 +3,107 @@
 //  LiveStage
 //
 //  Created by Claude AI on 2025-11-18.
-//  Gestion des détails de connexion RTMP
+//  Structures et helpers pour les connexions RTMP
+//
 
 import Foundation
 
-/// Détails d'une connexion RTMP
-struct RTMPConnectionDetails {
-
-    // MARK: - Properties
-
-    /// URL du serveur RTMP (ex: rtmps://a.rtmp.youtube.com/live2)
-    let serverURL: String
-
-    /// Clé de stream / Stream key
-    let streamKey: String
-
-    /// URL complète (serverURL + streamKey)
-    var fullURL: String {
-        let url = serverURL.hasSuffix("/") ? serverURL : serverURL + "/"
-        return url + streamKey
-    }
-
-    /// Timeout de connexion (secondes)
-    var connectionTimeout: TimeInterval = 10
-
-    /// Timeout de données (secondes)
-    var dataTimeout: TimeInterval = 30
-
-    /// Nombre maximum de tentatives de reconnexion
-    var maxReconnectionAttempts: Int = 5
-
-    /// Délai initial de reconnexion (secondes)
-    var initialReconnectionDelay: TimeInterval = 1
-
-    // MARK: - Validation
-
-    /// Vérifie que les paramètres sont valides
-    var isValid: Bool {
-        !serverURL.isEmpty && !streamKey.isEmpty && isValidURL
-    }
-
-    /// Vérifie que l'URL RTMP est valide
-    private var isValidURL: Bool {
-        let isRTMP = serverURL.lowercased().hasPrefix("rtmp://")
-        let isRTMPS = serverURL.lowercased().hasPrefix("rtmps://")
-        return isRTMP || isRTMPS
-    }
-
-    /// Type de protocole utilisé
-    var protocol_: RTMPProtocol {
-        if serverURL.lowercased().hasPrefix("rtmps://") {
-            return .rtmps
-        }
-        return .rtmp
-    }
-
-    // MARK: - Initialization
-
-    init(serverURL: String, streamKey: String) {
-        self.serverURL = serverURL
-        self.streamKey = streamKey
-    }
-}
-
 // MARK: - RTMP Protocol
 
+/// Types de protocoles RTMP supportés
 enum RTMPProtocol: String {
-    case rtmp  = "rtmp"
+    case rtmp = "rtmp"
     case rtmps = "rtmps"
-
-    var description: String {
-        switch self {
-        case .rtmp:
-            return "RTMP (non-sécurisé)"
-        case .rtmps:
-            return "RTMPS (sécurisé, chiffré)"
-        }
-    }
+    case rtmpt = "rtmpt"
 
     var isSecure: Bool {
-        self == .rtmps
-    }
-}
-
-// MARK: - Known RTMP Servers
-
-enum KnownRTMPServer {
-
-    case youtube
-    case facebook
-    case twitch
-    case custom(String)
-
-    var serverURL: String {
-        switch self {
-        case .youtube:
-            return "rtmps://a.rtmp.youtube.com/live2"
-        case .facebook:
-            return "rtmps://live-api-s.facebook.com:443/rtmp"
-        case .twitch:
-            return "rtmp://live-lhr.twitch.tv/live"
-        case .custom(let url):
-            return url
-        }
+        return self == .rtmps
     }
 
-    var name: String {
+    var defaultPort: Int {
         switch self {
-        case .youtube:
-            return "YouTube Live"
-        case .facebook:
-            return "Facebook Live"
-        case .twitch:
-            return "Twitch"
-        case .custom:
-            return "Custom RTMP Server"
-        }
-    }
-
-    var requiresSSL: Bool {
-        switch self {
-        case .youtube, .facebook:
-            return true
-        case .twitch:
-            return false
-        case .custom(let url):
-            return url.lowercased().hasPrefix("rtmps://")
+        case .rtmp, .rtmpt:
+            return 1935
+        case .rtmps:
+            return 443
         }
     }
 }
 
-// MARK: - YouTube Live Specific
+// MARK: - Connection Details
 
-struct YouTubeLiveRTMP {
-
-    /// URL de base YouTube Live
-    static let serverURL = "rtmps://a.rtmp.youtube.com/live2"
-
-    /// Obtient l'URL complète pour YouTube Live
-    static func url(withStreamKey streamKey: String) -> String {
-        return serverURL + "/" + streamKey
-    }
-
-    /// Valide qu'une clé de stream YouTube est au bon format
-    static func isValidStreamKey(_ key: String) -> Bool {
-        // YouTube stream keys sont généralement longues et alphanumériques
-        return !key.isEmpty && key.count > 10 && key.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" })
-    }
-}
-
-// MARK: - RTMP Connection Info
-
-struct RTMPConnectionInfo {
-
-    /// Adresse du serveur (sans protocole)
-    let serverAddress: String
-
-    /// Port (1935 par défaut pour RTMP, 443 pour RTMPS)
-    let port: Int
-
-    /// Est-ce une connexion sécurisée (RTMPS)
-    let isSecure: Bool
-
-    /// Chemin dans le serveur RTMP
-    let applicationPath: String
-
-    /// Clé de stream
+/// Détails de connexion RTMP complets
+struct RTMPConnectionDetails {
+    let serverURL: String
     let streamKey: String
 
-    // MARK: - Initialization from URL
-
-    /// Parse une URL RTMP pour extraire les informations
-    init?(fromURL url: String, streamKey: String) {
-        guard let urlComponents = URLComponents(string: url) else {
-            return nil
-        }
-
-        guard let scheme = urlComponents.scheme?.lowercased() else {
-            return nil
-        }
-
-        let isSecure = scheme == "rtmps"
-
-        guard let host = urlComponents.host else {
-            return nil
-        }
-
-        let port = urlComponents.port ?? (isSecure ? 443 : 1935)
-        let path = urlComponents.path
-
-        self.serverAddress = host
-        self.port = port
-        self.isSecure = isSecure
-        self.applicationPath = path
-        self.streamKey = streamKey
+    /// Vérifie si les détails de connexion sont valides
+    var isValid: Bool {
+        return !serverURL.isEmpty &&
+               !streamKey.isEmpty &&
+               (serverURL.hasPrefix("rtmp://") || serverURL.hasPrefix("rtmps://"))
     }
 
-    /// Reconstruit l'URL complète
-    func buildFullURL() -> String {
-        let scheme = isSecure ? "rtmps" : "rtmp"
-        let portStr = (isSecure && port == 443) || (!isSecure && port == 1935) ? "" : ":\(port)"
-        return "\(scheme)://\(serverAddress)\(portStr)\(applicationPath)/\(streamKey)"
+    /// Détermine le protocole utilisé
+    var protocol_: RTMPProtocol {
+        if serverURL.hasPrefix("rtmps://") {
+            return .rtmps
+        } else if serverURL.hasPrefix("rtmpt://") {
+            return .rtmpt
+        } else {
+            return .rtmp
+        }
+    }
+
+    /// Construit l'URL complète pour la connexion
+    var fullURL: String {
+        let cleanURL = serverURL.hasSuffix("/") ? serverURL : "\(serverURL)/"
+        return "\(cleanURL)\(streamKey)"
     }
 }
 
-// MARK: - Connection Metrics
+// MARK: - Connection Info
 
-struct RTMPConnectionMetrics {
+/// Informations détaillées d'une connexion RTMP
+struct RTMPConnectionInfo {
+    let serverAddress: String
+    let port: Int
+    let application: String
+    let streamKey: String
+    let isSecure: Bool
 
-    /// Nombre d'octets envoyés
-    var bytesSent: UInt64 = 0
-
-    /// Nombre de frames vidéo envoyées
-    var framesVideoSent: UInt64 = 0
-
-    /// Nombre de frames vidéo droppées
-    var framesVideoDropped: UInt64 = 0
-
-    /// Nombre de samples audio envoyés
-    var audioSamplesSent: UInt64 = 0
-
-    /// Latence de la connexion (en ms)
-    var latency: UInt32 = 0
-
-    /// Framerate actuel
-    var currentFPS: Float = 0
-
-    /// Bitrate actuel (en bits par seconde)
-    var currentBitrate: UInt32 = 0
-
-    /// Taux de succès des packets
-    var packetSuccessRate: Float {
-        guard framesVideoSent > 0 else { return 100 }
-        let sent = Float(framesVideoSent)
-        let dropped = Float(framesVideoDropped)
-        return (sent / (sent + dropped)) * 100
-    }
-
-    /// Santé basée sur le taux de succès des packets
-    var healthIndicator: RTMPStreamManager.StreamHealth {
-        let rate = packetSuccessRate
-        switch rate {
-        case 80...:
-            return .excellent
-        case 60..<80:
-            return .good
-        case 40..<60:
-            return .fair
-        default:
-            return .poor
+    init?(fromURL url: String, streamKey: String) {
+        // Parser l'URL RTMP
+        guard let components = URLComponents(string: url) else {
+            return nil
         }
+
+        guard let host = components.host else {
+            return nil
+        }
+
+        self.serverAddress = host
+        self.streamKey = streamKey
+        self.isSecure = url.hasPrefix("rtmps://")
+        self.port = components.port ?? (isSecure ? 443 : 1935)
+
+        // Extraire l'application (généralement le premier segment du path)
+        let path = components.path
+        let pathComponents = path.components(separatedBy: "/").filter { !$0.isEmpty }
+        self.application = pathComponents.first ?? "live"
     }
 }
 
 // MARK: - Connection State
 
-enum RTMPConnectionState {
-
-    /// Pas connecté
+/// États possibles d'une connexion RTMP
+enum RTMPConnectionState: Equatable {
     case idle
-
-    /// En cours de connexion
     case connecting
-
-    /// Connecté et authentifié
     case connected
-
-    /// En cours de reconnexion (avec numéro de tentative)
     case reconnecting(attempt: Int)
-
-    /// Erreur de connexion
-    case error(Error)
+    case disconnected
+    case error(String)
 
     var description: String {
         switch self {
@@ -285,8 +115,216 @@ enum RTMPConnectionState {
             return "Connecté"
         case .reconnecting(let attempt):
             return "Reconnexion (\(attempt)/5)..."
-        case .error(let error):
-            return "Erreur: \(error.localizedDescription)"
+        case .disconnected:
+            return "Déconnecté"
+        case .error(let message):
+            return "Erreur: \(message)"
         }
+    }
+
+    static func == (lhs: RTMPConnectionState, rhs: RTMPConnectionState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle),
+             (.connecting, .connecting),
+             (.connected, .connected),
+             (.disconnected, .disconnected):
+            return true
+        case (.reconnecting(let a), .reconnecting(let b)):
+            return a == b
+        case (.error(let a), .error(let b)):
+            return a == b
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - Connection Metrics
+
+/// Métriques de connexion RTMP en temps réel
+struct RTMPConnectionMetrics {
+    var framesVideoSent: Int = 0
+    var framesVideoDropped: Int = 0
+    var framesAudioSent: Int = 0
+    var framesAudioDropped: Int = 0
+    var bytesSent: Int64 = 0
+    var averageUploadSpeed: Double = 0.0 // Mbps
+    var connectionUptime: TimeInterval = 0.0
+
+    /// Taux de réussite des packets vidéo (en pourcentage)
+    var packetSuccessRate: Double {
+        let total = framesVideoSent + framesVideoDropped
+        guard total > 0 else { return 100.0 }
+        return Double(framesVideoSent) / Double(total) * 100.0
+    }
+
+    /// Indicateur de santé basé sur le taux de réussite
+    var healthIndicator: RTMPStreamManager.StreamHealth {
+        let rate = packetSuccessRate
+        if rate > 80 {
+            return .excellent
+        } else if rate > 60 {
+            return .good
+        } else if rate > 40 {
+            return .fair
+        } else {
+            return .poor
+        }
+    }
+
+    /// Reset toutes les métriques
+    mutating func reset() {
+        framesVideoSent = 0
+        framesVideoDropped = 0
+        framesAudioSent = 0
+        framesAudioDropped = 0
+        bytesSent = 0
+        averageUploadSpeed = 0.0
+        connectionUptime = 0.0
+    }
+}
+
+// MARK: - Known RTMP Servers
+
+/// Serveurs RTMP connus et leurs configurations
+enum KnownRTMPServer {
+    case youtube
+    case twitch
+    case facebook
+    case custom(name: String, url: String)
+
+    var name: String {
+        switch self {
+        case .youtube:
+            return "YouTube Live"
+        case .twitch:
+            return "Twitch"
+        case .facebook:
+            return "Facebook Live"
+        case .custom(let name, _):
+            return name
+        }
+    }
+
+    var serverURL: String {
+        switch self {
+        case .youtube:
+            return "rtmps://a.rtmp.youtube.com/live2"
+        case .twitch:
+            return "rtmp://live.twitch.tv/app"
+        case .facebook:
+            return "rtmps://live-api-s.facebook.com:443/rtmp"
+        case .custom(_, let url):
+            return url
+        }
+    }
+
+    var requiresSSL: Bool {
+        switch self {
+        case .youtube, .facebook:
+            return true
+        case .twitch:
+            return false
+        case .custom(_, let url):
+            return url.hasPrefix("rtmps://")
+        }
+    }
+
+    var ingestEndpoints: [String] {
+        switch self {
+        case .youtube:
+            return [
+                "rtmps://a.rtmp.youtube.com/live2",
+                "rtmps://b.rtmp.youtube.com/live2",
+                "rtmps://c.rtmp.youtube.com/live2",
+                "rtmps://d.rtmp.youtube.com/live2"
+            ]
+        case .twitch:
+            return [
+                "rtmp://live.twitch.tv/app",
+                "rtmp://live-prg.twitch.tv/app",
+                "rtmp://live-fra.twitch.tv/app"
+            ]
+        case .facebook:
+            return ["rtmps://live-api-s.facebook.com:443/rtmp"]
+        case .custom:
+            return [serverURL]
+        }
+    }
+}
+
+// MARK: - YouTube Live RTMP Helper
+
+/// Helper spécifique pour YouTube Live RTMP
+enum YouTubeLiveRTMP {
+
+    /// Valide un stream key YouTube
+    /// Format typique: xxxx-xxxx-xxxx-xxxx (16 caractères avec tirets)
+    static func isValidStreamKey(_ key: String) -> Bool {
+        guard !key.isEmpty else { return false }
+
+        // YouTube stream keys sont typiquement 16+ caractères
+        if key.count < 10 {
+            return false
+        }
+
+        // Vérifier qu'il contient uniquement des caractères alphanumériques et tirets
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        return key.unicodeScalars.allSatisfy { allowedCharacters.contains($0) }
+    }
+
+    /// Serveurs d'ingestion YouTube par région
+    static let ingestServers = [
+        "primary": "rtmps://a.rtmp.youtube.com/live2",
+        "backup1": "rtmps://b.rtmp.youtube.com/live2",
+        "backup2": "rtmps://c.rtmp.youtube.com/live2",
+        "backup3": "rtmps://d.rtmp.youtube.com/live2"
+    ]
+
+    /// Paramètres recommandés pour YouTube Live
+    static let recommendedSettings = [
+        "maxBitrate": 6000,
+        "minBitrate": 1500,
+        "keyframeInterval": 2,
+        "audioCodec": "AAC",
+        "videoCodec": "H.264"
+    ]
+}
+
+// MARK: - RTMP URL Builder
+
+/// Constructeur d'URL RTMP sécurisé
+struct RTMPURLBuilder {
+    private let baseURL: String
+    private let streamKey: String
+    private let useSSL: Bool
+
+    init(baseURL: String, streamKey: String, useSSL: Bool = true) {
+        self.baseURL = baseURL
+        self.streamKey = streamKey
+        self.useSSL = useSSL
+    }
+
+    /// Construit l'URL complète en filtrant les données sensibles des logs
+    func build() -> String {
+        var url = baseURL
+
+        // S'assurer que l'URL a le bon protocole
+        if useSSL && url.hasPrefix("rtmp://") {
+            url = url.replacingOccurrences(of: "rtmp://", with: "rtmps://")
+        }
+
+        // Ajouter le stream key
+        let separator = url.hasSuffix("/") ? "" : "/"
+        return "\(url)\(separator)\(streamKey)"
+    }
+
+    /// URL pour les logs (sans le stream key)
+    var safeURLForLogging: String {
+        var url = baseURL
+        if useSSL && url.hasPrefix("rtmp://") {
+            url = url.replacingOccurrences(of: "rtmp://", with: "rtmps://")
+        }
+        return "\(url)/***"
     }
 }
