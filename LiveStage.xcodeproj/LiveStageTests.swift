@@ -243,7 +243,7 @@ struct YouTubeAPIServiceTests {
         do {
             try await service.refreshAccessToken()
             Issue.record("refreshAccessToken() devrait échouer sans refresh token")
-        } catch YouTubeAPIError.tokenRefreshFailed {
+        } catch AppError.tokenRefreshFailed {
             // Comportement attendu
             #expect(true)
         } catch {
@@ -301,6 +301,97 @@ struct YouTubeAPIServiceTests {
         #expect(response.refreshToken == "1//test_refresh_token")
         #expect(response.scope == "https://www.googleapis.com/auth/youtube")
         #expect(response.tokenType == "Bearer")
+    }
+}
+
+// MARK: - Error Handling Tests
+
+@Suite("Error Handling Tests")
+struct ErrorHandlingTests {
+
+    @Test("AppError messages en français")
+    func appErrorLocalizedMessages() {
+        let errors: [(AppError, String)] = [
+            (.notAuthenticated, "authentifié"),
+            (.userCancelled, "annulée"),
+            (.invalidResponse, "invalide"),
+            (.tokenExpired, "expiré"),
+            (.cameraPermissionDenied, "caméra"),
+            (.titleTooShort, "1 caractère"),
+            (.titleTooLong, "100 caractères")
+        ]
+
+        for (error, expectedSubstring) in errors {
+            let description = error.errorDescription ?? ""
+            #expect(description.lowercased().contains(expectedSubstring.lowercased()),
+                   "Error \(error) should contain '\(expectedSubstring)' in description")
+        }
+    }
+
+    @Test("AppError suggestions de récupération")
+    func appErrorRecoverySuggestions() {
+        let errors: [AppError] = [
+            .notAuthenticated,
+            .networkError(NSError(domain: "", code: 0)),
+            .cameraPermissionDenied,
+            .titleTooShort
+        ]
+
+        for error in errors {
+            #expect(error.recoverySuggestion != nil,
+                   "Error \(error) should have a recovery suggestion")
+            #expect(!error.recoverySuggestion!.isEmpty,
+                   "Recovery suggestion should not be empty")
+        }
+    }
+
+    @Test("AppError actions suggérées appropriées")
+    func appErrorSuggestedActions() {
+        // Erreur d'authentification devrait suggérer Login
+        let authError = AppError.notAuthenticated
+        #expect(authError.suggestedActions.contains { action in
+            action.title == "Se connecter"
+        })
+
+        // Erreur de permission devrait suggérer Ouvrir Réglages
+        let permissionError = AppError.cameraPermissionDenied
+        #expect(permissionError.suggestedActions.contains { action in
+            action.title == "Ouvrir Réglages"
+        })
+
+        // Erreur réseau devrait suggérer Réessayer
+        let networkError = AppError.networkError(NSError(domain: "", code: 0))
+        #expect(networkError.suggestedActions.contains { action in
+            action.title == "Réessayer"
+        })
+    }
+
+    @Test("ErrorAction titres en français")
+    func errorActionTitles() {
+        let actions: [ErrorAction] = [.retry, .cancel, .login, .openSettings, .dismiss]
+        let expectedTitles = ["Réessayer", "Annuler", "Se connecter", "Ouvrir Réglages", "OK"]
+
+        for (action, expectedTitle) in zip(actions, expectedTitles) {
+            #expect(action.title == expectedTitle)
+        }
+    }
+
+    @Test("Validation d'input - titre trop court")
+    func titleTooShortValidation() {
+        let error = AppError.titleTooShort
+        #expect(error.errorDescription?.contains("1 caractère") == true)
+    }
+
+    @Test("Validation d'input - titre trop long")
+    func titleTooLongValidation() {
+        let error = AppError.titleTooLong
+        #expect(error.errorDescription?.contains("100 caractères") == true)
+    }
+
+    @Test("Validation d'input - description trop longue")
+    func descriptionTooLongValidation() {
+        let error = AppError.descriptionTooLong
+        #expect(error.errorDescription?.contains("5000 caractères") == true)
     }
 }
 

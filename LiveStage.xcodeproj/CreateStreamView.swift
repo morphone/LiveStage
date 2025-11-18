@@ -17,8 +17,8 @@ struct CreateStreamView: View {
     @State private var streamDescription = ""
     @State private var scheduledStartTime = Date()
     @State private var isCreating = false
+    @State private var currentError: AppError?
     @State private var showError = false
-    @State private var errorMessage = ""
     
     var body: some View {
         NavigationStack {
@@ -48,8 +48,11 @@ struct CreateStreamView: View {
                             Task {
                                 do {
                                     try await youtubeService.authenticate()
+                                } catch let error as AppError {
+                                    currentError = error
+                                    showError = true
                                 } catch {
-                                    errorMessage = error.localizedDescription
+                                    currentError = .authenticationFailed(error)
                                     showError = true
                                 }
                             }
@@ -76,10 +79,20 @@ struct CreateStreamView: View {
                     }
                 }
             }
-            .alert("Erreur", isPresented: $showError) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(errorMessage)
+            .alert("Erreur", isPresented: $showError, presenting: currentError) { error in
+                ForEach(error.suggestedActions, id: \.title) { action in
+                    Button(action.title) {
+                        handleErrorAction(action, for: error)
+                    }
+                }
+            } message: { error in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(error.errorDescription ?? "Une erreur s'est produite")
+                    if let suggestion = error.recoverySuggestion {
+                        Text(suggestion)
+                            .font(.caption)
+                    }
+                }
             }
             .onAppear {
                 youtubeService.loadTokenFromKeychain()
@@ -90,29 +103,68 @@ struct CreateStreamView: View {
     private var canCreate: Bool {
         !streamTitle.isEmpty && youtubeService.isAuthenticated
     }
-    
+
+    private func handleErrorAction(_ action: ErrorAction, for error: AppError) {
+        switch action {
+        case .retry:
+            // Réessayer l'action qui a échoué
+            if case .authenticationFailed = error {
+                Task {
+                    try? await youtubeService.authenticate()
+                }
+            } else {
+                createStream()
+            }
+        case .login:
+            Task {
+                try? await youtubeService.authenticate()
+            }
+        case .openSettings:
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        case .cancel, .dismiss:
+            // Juste fermer l'alert
+            break
+        }
+    }
+
     private func createStream() {
         Task {
             isCreating = true
             defer { isCreating = false }
-            
+
             do {
+                // Validation des inputs
+                guard !streamTitle.isEmpty else {
+                    throw AppError.titleTooShort
+                }
+                guard streamTitle.count <= 100 else {
+                    throw AppError.titleTooLong
+                }
+                guard streamDescription.count <= 5000 else {
+                    throw AppError.descriptionTooLong
+                }
+                guard scheduledStartTime > Date() else {
+                    throw AppError.invalidScheduleDate
+                }
+
                 // 1. Créer le broadcast
                 let broadcast = try await youtubeService.createLiveStream(
                     title: streamTitle,
                     description: streamDescription,
                     scheduledStartTime: scheduledStartTime
                 )
-                
+
                 // 2. Créer le stream technique
                 let stream = try await youtubeService.createStream(title: streamTitle)
-                
+
                 // 3. Lier le broadcast au stream
                 try await youtubeService.bindBroadcastToStream(
                     broadcastId: broadcast.id,
                     streamId: stream.id
                 )
-                
+
                 // 4. Sauvegarder dans SwiftData
                 let newStream = YouTubeStream(
                     id: broadcast.id,
@@ -123,13 +175,16 @@ struct CreateStreamView: View {
                     streamURL: stream.cdn.ingestionInfo.ingestionAddress,
                     status: .scheduled
                 )
-                
+
                 modelContext.insert(newStream)
                 try modelContext.save()
-                
+
                 dismiss()
+            } catch let error as AppError {
+                currentError = error
+                showError = true
             } catch {
-                errorMessage = error.localizedDescription
+                currentError = .unknownError
                 showError = true
             }
         }

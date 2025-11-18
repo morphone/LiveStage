@@ -26,6 +26,7 @@ class YouTubeAPIService: ObservableObject {
 
     /// Démarre le processus d'authentification OAuth 2.0
     func authenticate() async throws {
+        AppLogger.logUserAction("Démarrage de l'authentification OAuth")
         let authURL = buildAuthURL()
 
         // Créer une continuation pour gérer l'authentification asynchrone
@@ -39,9 +40,11 @@ class YouTubeAPIService: ObservableObject {
                 if let error = error {
                     // Vérifier si l'utilisateur a annulé
                     if case ASWebAuthenticationSessionError.canceledLogin = error {
-                        continuation.resume(throwing: YouTubeAPIError.userCancelled)
+                        AppLogger.logAuthenticationFailure(reason: "Utilisateur a annulé")
+                        continuation.resume(throwing: AppError.userCancelled)
                     } else {
-                        continuation.resume(throwing: YouTubeAPIError.authenticationFailed(error))
+                        AppLogger.logAuthenticationFailure(reason: error.localizedDescription)
+                        continuation.resume(throwing: AppError.authenticationFailed(error))
                     }
                     return
                 }
@@ -50,7 +53,7 @@ class YouTubeAPIService: ObservableObject {
                 guard let url = callbackURL,
                       let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                       let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
-                    continuation.resume(throwing: YouTubeAPIError.invalidCallback)
+                    continuation.resume(throwing: AppError.invalidCallback)
                     return
                 }
 
@@ -58,8 +61,10 @@ class YouTubeAPIService: ObservableObject {
                 Task {
                     do {
                         try await self.exchangeCodeForToken(code: code)
+                        AppLogger.logAuthenticationSuccess()
                         continuation.resume()
                     } catch {
+                        AppLogger.logAuthenticationFailure(reason: error.localizedDescription)
                         continuation.resume(throwing: error)
                     }
                 }
@@ -113,11 +118,11 @@ class YouTubeAPIService: ObservableObject {
 
         // Vérifier la réponse HTTP
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw YouTubeAPIError.invalidResponse
+            throw AppError.invalidResponse
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw YouTubeAPIError.invalidResponse
+            throw AppError.invalidResponse
         }
 
         let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
@@ -147,7 +152,7 @@ class YouTubeAPIService: ObservableObject {
     /// Crée un nouveau flux de diffusion YouTube
     func createLiveStream(title: String, description: String, scheduledStartTime: Date) async throws -> LiveStreamResponse {
         guard let token = accessToken else {
-            throw YouTubeAPIError.notAuthenticated
+            throw AppError.notAuthenticated
         }
         
         let url = URL(string: "https://www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,contentDetails,status")!
@@ -179,7 +184,7 @@ class YouTubeAPIService: ObservableObject {
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            throw YouTubeAPIError.invalidResponse
+            throw AppError.invalidResponse
         }
         
         return try JSONDecoder().decode(LiveStreamResponse.self, from: data)
@@ -188,7 +193,7 @@ class YouTubeAPIService: ObservableObject {
     /// Crée un stream (flux vidéo technique)
     func createStream(title: String) async throws -> StreamResponse {
         guard let token = accessToken else {
-            throw YouTubeAPIError.notAuthenticated
+            throw AppError.notAuthenticated
         }
         
         let url = URL(string: "https://www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails,status")!
@@ -215,7 +220,7 @@ class YouTubeAPIService: ObservableObject {
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            throw YouTubeAPIError.invalidResponse
+            throw AppError.invalidResponse
         }
         
         return try JSONDecoder().decode(StreamResponse.self, from: data)
@@ -224,7 +229,7 @@ class YouTubeAPIService: ObservableObject {
     /// Lie un broadcast à un stream
     func bindBroadcastToStream(broadcastId: String, streamId: String) async throws {
         guard let token = accessToken else {
-            throw YouTubeAPIError.notAuthenticated
+            throw AppError.notAuthenticated
         }
         
         let url = URL(string: "https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=\(broadcastId)&streamId=\(streamId)&part=id,contentDetails")!
@@ -237,7 +242,7 @@ class YouTubeAPIService: ObservableObject {
         
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
-            throw YouTubeAPIError.invalidResponse
+            throw AppError.invalidResponse
         }
     }
     
@@ -309,9 +314,11 @@ class YouTubeAPIService: ObservableObject {
     /// Rafraîchit l'access token en utilisant le refresh token
     func refreshAccessToken() async throws {
         guard let currentRefreshToken = refreshToken else {
-            throw YouTubeAPIError.tokenRefreshFailed
+            AppLogger.logTokenRefresh(success: false)
+            throw AppError.tokenRefreshFailed
         }
 
+        AppLogger.auth.info("🔄 Début du rafraîchissement du token")
         let tokenURL = URL(string: Config.YouTube.tokenURL)!
 
         var request = URLRequest(url: tokenURL)
@@ -337,21 +344,24 @@ class YouTubeAPIService: ObservableObject {
 
         // Vérifier la réponse HTTP
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw YouTubeAPIError.invalidResponse
+            AppLogger.logTokenRefresh(success: false)
+            throw AppError.invalidResponse
         }
 
         // Gérer le cas où le refresh token est invalide
         if httpResponse.statusCode == 400 {
             // Le refresh token est probablement expiré ou révoqué
+            AppLogger.auth.error("❌ Refresh token invalide - Déconnexion forcée")
             // Forcer l'utilisateur à se reconnecter
             await MainActor.run {
                 self.logout()
             }
-            throw YouTubeAPIError.tokenRefreshFailed
+            throw AppError.tokenRefreshFailed
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw YouTubeAPIError.invalidResponse
+            AppLogger.logTokenRefresh(success: false)
+            throw AppError.invalidResponse
         }
 
         let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
@@ -372,6 +382,8 @@ class YouTubeAPIService: ObservableObject {
             try? KeychainHelper.saveYouTubeRefreshToken(newRefreshToken)
         }
         try? KeychainHelper.saveTokenExpirationDate(expirationDate)
+
+        AppLogger.logTokenRefresh(success: true)
 
         // Re-programmer le prochain refresh
         scheduleTokenRefresh()
@@ -417,35 +429,6 @@ struct StreamResponse: Codable {
         struct IngestionInfo: Codable {
             let streamName: String
             let ingestionAddress: String
-        }
-    }
-}
-
-enum YouTubeAPIError: LocalizedError {
-    case notAuthenticated
-    case invalidResponse
-    case networkError
-    case userCancelled
-    case authenticationFailed(Error)
-    case invalidCallback
-    case tokenRefreshFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .notAuthenticated:
-            return "Non authentifié. Veuillez vous connecter à YouTube."
-        case .invalidResponse:
-            return "Réponse invalide du serveur YouTube."
-        case .networkError:
-            return "Erreur réseau lors de la communication avec YouTube."
-        case .userCancelled:
-            return "Authentification annulée par l'utilisateur."
-        case .authenticationFailed(let error):
-            return "Échec de l'authentification : \(error.localizedDescription)"
-        case .invalidCallback:
-            return "URL de callback invalide. Impossible d'extraire le code d'autorisation."
-        case .tokenRefreshFailed:
-            return "Échec du rafraîchissement du token. Veuillez vous reconnecter."
         }
     }
 }
